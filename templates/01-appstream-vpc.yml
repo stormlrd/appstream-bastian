@@ -1,0 +1,144 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Appstream Bastian solution: 01-appstream-bastian VPC template"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - 
+        Label:
+          default: "VPC Configuration"
+        Parameters:
+          - pVPCCIDR
+          - pCreateFlowLogBucket
+      - 
+        Label:
+          default: "CREATE: New S3 Bucket Settings for VPC Flow Log"
+        Parameters:
+          - pVPCFlowLogBucketName
+          - pBucketEncryption
+          - pCannedAccessControl
+          - pKMSMasterKeyID
+          - pVersioning
+      - 
+        Label:
+          default: "EXiSTING: Existing Bucket Settings for VPC Flow Log"
+        Parameters:
+          - pVPCFlowLogBucketARN
+
+    ParameterLabels:
+          pVPCCIDR: 
+            default: "CIRD Block for VPC"
+          pCreateFlowLogBucket: 
+            default: "CREATE a flow log bucket or bring your EXISTING one?"
+          pVPCFlowLogBucketName: 
+            default: "S3 Bucket Name for Flow Logs"
+          pVPCFlowLogBucketARN: 
+            default: "S3 Bucket ARN"
+
+Parameters:
+  pVPCCIDR:
+    Type: String
+    Default: 192.168.1.1/24
+    Description: CIDR for your VPC that hosts the AppStream Bastian Streaming Instances
+  
+  pCreateFlowLogBucket:
+    Type: String
+    Default: Create
+    AllowedValues:
+      - Create
+      - Existing
+    Description: Create Flow Log Bucket or use Pre-Existing One?
+  
+  pVPCFlowLogBucketName:
+    Type: String
+    Default: "appstream-bastian-vpc-flowlogs"
+    Description: Bucket Name for the new bucket to store VPC Flow logs in.
+  
+  pBucketEncryption:
+    Type: String
+    Default: "aws:kms"
+    AllowedValues: 
+      - "aws:kms"
+      
+  pCannedAccessControl:
+    Type: "String"
+    Description: "Canned Access Control"
+    Default: "BucketOwnerFullControl"
+    AllowedValues:
+      - "AuthenticatedRead"
+      - "AwsExecRead"
+      - "BucketOwnerRead"
+      - "BucketOwnerFullControl"
+      - "LogDeliveryWrite"
+      - "Private"
+      - "PublicRead"
+      - "PublicReadWrite"
+
+  pKMSMasterKeyID:
+    Type: "String"
+    Description: "KMS Key ID ARN"
+
+  pVersioning:
+    Type: "String"
+    Description: "Versioning"
+    Default: "Suspended"
+    AllowedValues:
+      - "Enabled"
+      - "Suspended"
+  
+  pVPCFlowLogBucketARN:
+    Type: String
+    Description: Bucket ARN of existing Flow Log bucket.
+
+Conditions:
+  CreateFlowLogBucket: !Equals [ !Ref pCreateFlowLogBucket, Create ]
+  UseExistingFlowLogBucket: !Equals [ !Ref pCreateFlowLogBucket, Existing ]
+    
+Resources:
+  rVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref pVPCCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+      - 
+        Key: Name
+        Value: !Ref AWS::StackName
+
+  rVPCFlowLogCreate:
+    Type: AWS::EC2::FlowLog
+    Condition: CreateFlowLogBucket
+    DependsOn: rVPCFlowLogBucket
+    Properties:
+      LogDestination: !GetAtt rVPCFlowLogBucket.Arn
+      LogDestinationType: s3
+      ResourceId: !Ref rVPC
+      ResourceType: VPC
+      TrafficType: ALL
+
+  rVPCFlowLogBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateFlowLogBucket
+    Properties:
+      BucketName: !Sub
+        - "${bucketname}-${AWS::Region}-${AWS::AccountId}"
+        - { bucketname: !Ref pVPCFlowLogBucketName }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: !Ref pBucketEncryption
+            KMSMasterKeyID: !Ref pKMSMasterKeyID
+      
+  rVPCFlowLogExisting:
+    Type: AWS::EC2::FlowLog
+    Condition: UseExistingFlowLogBucket
+    Properties:
+      LogDestination: !Ref pVPCFlowLogBucketARN
+      LogDestinationType: s3
+      ResourceId: !Ref rVPC
+      ResourceType: VPC
+      TrafficType: All      
